@@ -1,8 +1,6 @@
 const mongoose = require('mongoose'); //~ Initializing mongoose
 require('dotenv').config();
 
-const encodedPassword = encodeURIComponent('Sahil80942@#');
-
 const mongoURI = process.env.DB_URI;
 
 const connectToMongo = async () => {

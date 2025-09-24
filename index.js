@@ -14,11 +14,12 @@ app.use(express.json());
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
 // Available Routes
-
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/user', require('./routes/user'));
 app.use('/api/feed', require('./routes/post'));
 app.use('/api/comments', require('./routes/comments'));
+app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/club', require('./routes/club'));
 
 app.listen(port, () => {
     console.log(`SomethingUnique App now live on port ${port}`);

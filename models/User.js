@@ -13,9 +13,10 @@ const UserSchema = new Schema(
             required: true,
             unique: true,
         },
-        admin_of_college: {
-            type: Schema.Types.ObjectId,
-            ref: 'College',
+        role: {
+            type: String,
+            enum: ['super_admin', 'college_admin', 'student'],
+            default: 'student',
         },
         bio: {
             type: String,

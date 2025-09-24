@@ -11,6 +11,7 @@ var fetchuser = require('../middleware/fetcher');
 const sendOtp = require('../utils/mailer.js');
 const Otp = require('../models/Otp');
 const College = require('../models/College');
+const Club = require('../models/Club');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -72,6 +73,7 @@ router.post(
                     username: user.username,
                     email: user.email,
                     college_id: user.college_id,
+                    role: user.role,
                 },
             };
             const authToken = jwt.sign(data, JWT_SECRET);
@@ -130,7 +132,6 @@ router.get('/check-username-availability', async (req, res) => {
     }
 });
 
-// Using async/await for better error handling and readability
 router.get("/send-otp", async (req, res) => {
   try {
     const { email, type } = req.query;
@@ -165,51 +166,50 @@ router.get("/send-otp", async (req, res) => {
       }
     }
 
-    // ✅ Generate OTP & expiry
-    const otp = Math.floor(100000 + Math.random() * 900000); // 6-digit OTP
+    // ✅ Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000);
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // ✅ Save OTP (atomic upsert)
-    const otpData = await Otp.findOneAndUpdate(
+    // ✅ Save OTP
+    await Otp.findOneAndUpdate(
       { email },
       { otp, expireAt: otpExpiry },
       { upsert: true, new: true }
     ).catch((err) => {
       console.error("Database error:", err);
-      throw new Error("Failed to save OTP. Please try again.");
+      throw new Error("Failed to save OTP.");
     });
 
-    // ✅ Send OTP email
-    const result = await sendOtp(email, otp);
-
-    if (!result.success) {
-      console.error("Email sending failed:", result.message);
-      return res.status(500).json({
-        data: null,
-        message: "Failed to send OTP. Please try again later.",
-        ...(isDev && { debug: result.message }), // show detailed msg in dev
-        meta: { status: 500 },
-      });
-    }
-
-    console.log("OTP sent:", result.info?.messageId || "(no id)");
-
-    return res.status(200).json({
+    // ✅ Respond to client immediately
+    res.status(200).json({
       data: null,
-      message: "OTP sent successfully.",
+      message: "OTP generated successfully. Check your email shortly.",
       meta: { status: 200 },
     });
+
+    // ✅ Send email in background (don’t await)
+    sendOtp(email, otp)
+      .then((result) => {
+        if (!result.success) {
+          console.error(`❌ OTP email failed for ${email}:`, result.message);
+        } else if (isDev) {
+          console.log(`📧 OTP email sent to ${email}:`, result.info?.messageId);
+        }
+      })
+      .catch((err) => {
+        console.error(`❌ Unexpected email error for ${email}:`, err.message);
+      });
   } catch (error) {
     console.error("Error in /send-otp:", error);
-
     return res.status(500).json({
       data: null,
       message: "Error sending OTP. Please try again later.",
-      ...(isDev && { debug: error.message }), // show extra info in dev
+      ...(isDev && { debug: error.message }),
       meta: { status: 500 },
     });
   }
 });
+
 
 router.get('/get-colleges', async (req, res) => {
     try {
@@ -224,6 +224,69 @@ router.get('/get-colleges', async (req, res) => {
             data: error,
             message:
                 'Error fetching colleges. Please try again later.',
+        });
+    }
+});
+
+router.get('/get-college-club', fetchuser, async (req, res) => {
+    try {
+        const college = await College.findById(req?.user?.college_id);
+        const club = await Club.findOne({ admin: req?.user?.id });
+        if (!college) {
+            return res.status(400).json({
+                data: null,
+                message: 'College not found',
+            });
+        }
+        res.status(200).json({
+            data: {
+                college,
+                club,
+            },
+            message: 'College fetched successfully',
+        });
+    } catch (error) {
+        console.error(error.message);
+        res.status(500).json({
+            data: error,
+            message:
+                'Error fetching college. Please try again later.',
+        });
+    }
+});
+
+router.post('/add-club', fetchuser, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(400).json({
+                data: null,
+                message: 'User not found',
+            });
+        }
+        const college = await College.findById(user.college_id);
+        if (!college) {
+            return res.status(400).json({
+                message: 'Invalid college',
+                data: null,
+            });
+        }
+        const { name, description, college_id } = req.body;
+        const club = await Club.create({
+            name,
+            description,
+            college_id: college._id,
+            admin: user._id,
+        });
+        res.status(200).json({
+            data: club,
+            message: 'Club added successfully',
+        });
+    } catch (error) {
+        console.error(error.message);
+        res.status(500).json({
+            data: error,
+            message: 'Internal Server Error',
         });
     }
 });
@@ -281,6 +344,7 @@ router.post('/verify-otp', async (req, res) => {
                     id: user ? user.id : null,
                     username: user ? user.username : null,
                     college_id: user ? user.college_id._id : null,
+                    role: user ? user.role : null,
                 },
             },
             process.env.JWT_SECRET,
