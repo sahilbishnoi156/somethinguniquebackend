@@ -14,6 +14,9 @@ const College = require('../models/College');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
+const isDev = process.env.NODE_ENV !== "production";
+
+
 // ROUTE 1: Create a User using: POST "/api/auth/createuser". No login required
 router.post(
     '/create-user',
@@ -128,71 +131,84 @@ router.get('/check-username-availability', async (req, res) => {
 });
 
 // Using async/await for better error handling and readability
-router.get('/send-otp', async (req, res) => {
-    try {
-        const email = req.query.email;
-        const type = req.query.type;
-        if (type !== 'login' && type !== 'register') {
-            return res.status(400).json({
-                data: null,
-                message: 'Invalid request type.',
-                meta: { status: 400 },
-            });
-        }
-        // Input validation:  More robust email validation
-        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            return res.status(400).json({
-                data: null,
-                message: 'Please enter a valid email address.',
-                meta: { status: 400 },
-            });
-        }
+router.get("/send-otp", async (req, res) => {
+  try {
+    const { email, type } = req.query;
 
-        if (type === 'login') {
-            const user = await User.findOne({ email });
-            if (!user) {
-                return res.status(400).json({
-                    data: null,
-                    message: 'User not found. Please sign up.',
-                });
-            }
-        }
-
-        const otp = Math.floor(100000 + Math.random() * 900000);
-        const otpExpiry = new Date();
-        otpExpiry.setMinutes(otpExpiry.getMinutes() + 10); // OTP expires in 10 minutes
-
-        //Use findOneAndUpdate for better efficiency (atomic operation).  Error handling included below.
-        const otpData = await Otp.findOneAndUpdate(
-            { email },
-            { otp, expireAt: otpExpiry },
-            { upsert: true, new: true } // new:true returns the updated document
-        ).catch((err) => {
-            // Handle database errors specifically.
-            console.error('Database error:', err);
-            throw new Error('Failed to save OTP to the database.');
-        });
-
-        // TODO: fix this const info = await sendOtp(email, otp); //Make sendOtp async if it's not already
-        let info = {
-            messageId: '1234567890', //Dummy message ID for testing
-        };
-        if (!info) {
-            throw new Error('Failed to send OTP via email.');
-        }
-
-        console.log('OTP sent: ', info.messageId);
-        res.status(200).json({
-            data: null,
-            message: 'OTP sent successfully.',
-        });
-    } catch (error) {
-        console.error('Error sending OTP:', error.message);
-        res.status(500).json({
-            data: error,
-            message: 'Error sending OTP. Please try again later.',
-        });
+    // ✅ Validate type
+    if (!["login", "register"].includes(type)) {
+      return res.status(400).json({
+        data: null,
+        message: "Invalid request type.",
+        meta: { status: 400 },
+      });
     }
+
+    // ✅ Validate email format
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        data: null,
+        message: "Please enter a valid email address.",
+        meta: { status: 400 },
+      });
+    }
+
+    // ✅ For login → ensure user exists
+    if (type === "login") {
+      const user = await User.findOne({ email });
+      if (!user) {
+        return res.status(404).json({
+          data: null,
+          message: "User not found. Please sign up.",
+          meta: { status: 404 },
+        });
+      }
+    }
+
+    // ✅ Generate OTP & expiry
+    const otp = Math.floor(100000 + Math.random() * 900000); // 6-digit OTP
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // ✅ Save OTP (atomic upsert)
+    const otpData = await Otp.findOneAndUpdate(
+      { email },
+      { otp, expireAt: otpExpiry },
+      { upsert: true, new: true }
+    ).catch((err) => {
+      console.error("Database error:", err);
+      throw new Error("Failed to save OTP. Please try again.");
+    });
+
+    // ✅ Send OTP email
+    const result = await sendOtp(email, otp);
+
+    if (!result.success) {
+      console.error("Email sending failed:", result.message);
+      return res.status(500).json({
+        data: null,
+        message: "Failed to send OTP. Please try again later.",
+        ...(isDev && { debug: result.message }), // show detailed msg in dev
+        meta: { status: 500 },
+      });
+    }
+
+    console.log("OTP sent:", result.info?.messageId || "(no id)");
+
+    return res.status(200).json({
+      data: null,
+      message: "OTP sent successfully.",
+      meta: { status: 200 },
+    });
+  } catch (error) {
+    console.error("Error in /send-otp:", error);
+
+    return res.status(500).json({
+      data: null,
+      message: "Error sending OTP. Please try again later.",
+      ...(isDev && { debug: error.message }), // show extra info in dev
+      meta: { status: 500 },
+    });
+  }
 });
 
 router.get('/get-colleges', async (req, res) => {

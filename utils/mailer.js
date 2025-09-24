@@ -1,53 +1,75 @@
-const nodemailer = require('nodemailer');
+const nodemailer = require("nodemailer");
 
+const isDev = process.env.NODE_ENV !== "production";
+
+// Create transporter once (not every call)
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.SMTP_EMAIL,
+    pass: process.env.SMTP_PASSWORD,
+  },
+});
+
+/**
+ * Send OTP email
+ * @param {string} email - Recipient's email
+ * @param {string} otp - One-time password
+ * @returns {Promise<{ success: boolean, message: string, info?: object }>}
+ */
 const sendOtp = async (email, otp) => {
-    try {
-        console.log('Connecting to SMTP server...');
-        const transporter = await nodemailer.createTransport({
-            host: 'smtp.ethereal.email',
-            port: 587,
-            auth: {
-                user: process.env.EMAIL_USER,
-                pass: process.env.EMAIL_PASS,
-            },
-            tls: {
-                rejectUnauthorized: false,
-            },
-        });
-        console.log('SMTP connection established.');
-        const info = await transporter.sendMail({
-            from: '"Professor OTP ✉️" <noreply@somethingunique.edu>',
-            to: email, // Receiver email
-            subject: `Your Secret Code is Ready! 🚀`, // Fun subject line
-            text: `Hey there, superstar! 🌟 Your one-time access code is: ${otp}.
-               Remember, it's valid for just 10 minutes! Don’t share it unless
-               you want someone else stealing your campus fame.`,
-            html: `
-            <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; background-color: #f9f9f9; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-                <h1 style="color: #4caf50; margin-bottom: 10px;">🚨 Your Secret Access Code is Here! 🚨</h1>
-                <p style="font-size: 18px; color: #333;">Hey there, superstar! 🌟</p>
-                <p style="font-size: 16px; color: #555;">Your exclusive code for <b>SomethingUnique</b> is:</p>
-                <div style="font-size: 28px; font-weight: bold; color: #ff5722; margin: 20px 0;">${otp}</div>
-                <p style="font-size: 16px; color: #333;">Use it to dive into the awesomeness of your college world!
-                But heads up:</p>
-                <p style="font-size: 16px; color: #d32f2f;"><strong>Expires in 10 minutes. ⏳</strong></p>
-                <p style="font-size: 14px; color: #555; margin-top: 10px;">
-                    <i>"With great codes, comes great responsibility."</i> Don’t share it unless you’re okay with
-                    someone else crashing your college buzz. 😎
-                </p>
-                <p style="margin-top: 20px; font-size: 14px; color: #777;">Need help? Hit us up. Or better yet,
-                send us a meme—we love those. 🤓</p>
-                <p style="margin-top: 20px; font-size: 16px; color: #333;">
-                    Cheers, <br><b>Team SomethingUnique 🚀</b>
-                </p>
-            </div>
-        `,
-        });
-
-        return info;
-    } catch (error) {
-        console.error(error);
-        return null;
+  try {
+    // Basic validation
+    if (!email || !otp) {
+      return { success: false, message: "Email and OTP are required." };
     }
+
+    // Verify SMTP connection
+    try {
+      await transporter.verify();
+      if (isDev) console.log("✅ SMTP server is ready to take messages");
+    } catch (err) {
+      console.error("❌ SMTP verification failed:", err);
+      return {
+        success: false,
+        message: isDev
+          ? `SMTP verification failed: ${err.message}`
+          : "Email service is currently unavailable. Please try again later.",
+      };
+    }
+
+    // Send email
+    const info = await transporter.sendMail({
+      from: '"Professor OTP ✉️" <noreply@somethingunique.edu>',
+      to: email,
+      subject: `Your Secret Code is Ready! 🚀`,
+      text: `Hey there! Your one-time access code is: ${otp}. It’s valid for 10 minutes.`,
+      html: `
+        <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
+          <h1>🚨 Your Secret Access Code 🚨</h1>
+          <p>Your exclusive code is:</p>
+          <div style="font-size: 28px; font-weight: bold; color: #ff5722; margin: 20px 0;">${otp}</div>
+          <p><strong>Expires in 10 minutes. ⏳</strong></p>
+        </div>
+      `,
+    });
+
+    if (isDev) console.log("📧 Email sent successfully:", info);
+
+    return {
+      success: true,
+      message: "OTP email sent successfully.",
+      info: isDev ? info : undefined, // hide SMTP info in prod
+    };
+  } catch (err) {
+    console.error("❌ Email sending failed:", err);
+    return {
+      success: false,
+      message: isDev
+        ? `Email sending failed: ${err.message}`
+        : "Failed to send OTP. Please try again later.",
+    };
+  }
 };
+
 module.exports = sendOtp;
